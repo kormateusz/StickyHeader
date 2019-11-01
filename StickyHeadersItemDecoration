@@ -1,0 +1,126 @@
+import android.graphics.Canvas
+import android.graphics.Rect
+import android.view.View
+import android.view.ViewGroup
+import androidx.recyclerview.widget.RecyclerView
+
+interface StickyHeader {
+    fun isHeader(position: Int): Boolean
+}
+
+class StickyHeadersItemDecoration : RecyclerView.ItemDecoration() {
+
+    private var currentHeader: Pair<Int, RecyclerView.ViewHolder>? = null
+
+    override fun onDrawOver(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
+        super.onDrawOver(canvas, parent, state)
+        val topChild = parent.getChildAt(0) ?: return
+        val topChildPosition = parent.getChildAdapterPosition(topChild)
+        if (topChildPosition == RecyclerView.NO_POSITION) {
+            return
+        }
+
+        val headerView = getHeaderViewForItem(topChildPosition, parent) ?: return
+
+        val contactPoint = headerView.bottom
+        val childInContact = getChildInContact(parent, contactPoint) ?: return
+
+        if ((parent.adapter as StickyHeader).isHeader(parent.getChildAdapterPosition(childInContact))) {
+            moveHeader(canvas, headerView, childInContact)
+            return
+        }
+
+        drawHeader(canvas, headerView)
+    }
+
+    private fun getHeaderViewForItem(itemPosition: Int, parent: RecyclerView): View? {
+        if (parent.adapter == null) {
+            return null
+        }
+        val headerPosition = getHeaderPositionForItem(parent, itemPosition)
+        val headerType = parent.adapter?.getItemViewType(headerPosition) ?: return null
+        // if match reuse viewHolder
+        if (currentHeader?.first == headerPosition && currentHeader?.second?.itemViewType == headerType) {
+            return currentHeader?.second?.itemView
+        }
+
+        val headerHolder = parent.adapter?.createViewHolder(parent, headerType)
+        if (headerHolder != null) {
+            parent.adapter?.onBindViewHolder(headerHolder, headerPosition)
+            fixLayoutSize(parent, headerHolder.itemView)
+            // save for next draw
+            currentHeader = headerPosition to headerHolder
+        }
+        return headerHolder?.itemView
+    }
+
+    private fun drawHeader(canvas: Canvas, header: View) {
+        canvas.save()
+        canvas.translate(0f, 0f)
+        header.draw(canvas)
+        canvas.restore()
+    }
+
+    private fun moveHeader(canvas: Canvas, currentHeader: View, nextHeader: View) {
+        canvas.save()
+        canvas.translate(0f, (nextHeader.top - currentHeader.height).toFloat())
+        currentHeader.draw(canvas)
+        canvas.restore()
+    }
+
+    private fun getChildInContact(parent: RecyclerView, contactPoint: Int): View? {
+        var childInContact: View? = null
+        for (i in 0 until parent.childCount) {
+            val child = parent.getChildAt(i)
+            val mBounds = Rect()
+            parent.getDecoratedBoundsWithMargins(child, mBounds)
+            if (mBounds.bottom > contactPoint) {
+                if (mBounds.top <= contactPoint) {
+                    // This child overlaps the contactPoint
+                    childInContact = child
+                    break
+                }
+            }
+        }
+        return childInContact
+    }
+
+    /**
+     * Properly measures and layouts the top sticky header.
+     *
+     * @param parent ViewGroup: RecyclerView in this case.
+     */
+    private fun fixLayoutSize(parent: ViewGroup, view: View) {
+        // Specs for parent (RecyclerView)
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(parent.width, View.MeasureSpec.EXACTLY)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(parent.height, View.MeasureSpec.UNSPECIFIED)
+
+        // Specs for children (headers)
+        val childWidthSpec = ViewGroup.getChildMeasureSpec(
+            widthSpec,
+            parent.paddingLeft + parent.paddingRight,
+            view.layoutParams.width
+        )
+        val childHeightSpec = ViewGroup.getChildMeasureSpec(
+            heightSpec,
+            parent.paddingTop + parent.paddingBottom,
+            view.layoutParams.height
+        )
+
+        view.measure(childWidthSpec, childHeightSpec)
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+    }
+
+    private fun getHeaderPositionForItem(parent: RecyclerView, itemPosition: Int): Int {
+        var headerPosition = 0
+        var currentPosition = itemPosition
+        do {
+            if ((parent.adapter as StickyHeader).isHeader(currentPosition)) {
+                headerPosition = currentPosition
+                break
+            }
+            currentPosition -= 1
+        } while (currentPosition >= 0)
+        return headerPosition
+    }
+}
